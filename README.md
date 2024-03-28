@@ -1,0 +1,728 @@
+# Oracle SELECT AI with APEX Hands on LAB
+
+<p align="right">Next-generation application development using generative AI</p>
+
+The app developed with OCI Autonomous Database's APEX leverages the features of SELECT AI and VPD (Virtual Private Database) to enable natural language data searches and permission-based control of search results. This article explains the steps to quickly create such an application.
+
+> This is not a study material for APEX, Select AI, and VPD, so it does not include detailed explanations of each function.
+
+ 
+
+## 0. Prerequisites
+
+- OCI Autonomous Database creation complete
+
+- Obtaining the OpenAI API Key is complete ( please refer to [the OpenAI quick start for how to obtain it)](https://platform.openai.com/docs/quickstart)
+
+   
+
+## 1. Create APEX Workspace
+
+Create an APEX Workspace.
+
+ 
+
+On the Autonomous Database details screen, click the instance name (for example) under the APEX instance .`apexselectai`
+
+![image-20240308144333993](images/image-20240308144333993.png)
+
+On the APEX instance details screen, click "Launch APEX".
+
+![image-20240308144447931](images/image-20240308144447931.png)
+
+`ADMIN`Enter the user's password and click "Sign In to Administration".
+
+![image-20240308144718248](images/image-20240308144718248.png)
+
+Click "Create Workspace".
+
+![image-20240308144756841](images/image-20240308144756841.png)
+
+Click "New Schema".
+
+![image-20240308144835141](images/image-20240308144835141.png)
+
+Enter the following items and click "Create Workspace".
+
+- Workspace Name:`APEX_WORLD`
+- Workspace Username:`APEX_WORLD`
+- Workspace Password:`<YOUR_PASSWORD>`
+- Database Password:`<YOUR_PASSWORD>`
+
+![image-20240308144955337](images/image-20240308144955337.png)
+
+ 
+
+## 2. User verification
+
+Once created, `ADMIN`"Sign out" the user to validate the newly created user.
+
+ 
+
+`ADMIN`Click on the user and click "Sign out".
+
+![image-20240308145228183](images/image-20240308145228183.png)
+
+Click "Return to Sign In Page".
+
+![image-20240308145337592](images/image-20240308145337592.png)
+
+"Sign In" with the newly created user.`APEX_WORLD`
+
+Enter the following items and click "Sign In".
+
+- Workspace:`APEX_WORLD`
+- Database Username:`APEX_WORLD`
+- Password:`<YOUR_PASSWORD>`
+
+![image-20240308145623909](images/image-20240308145623909.png)
+
+We have verified that newly created users can "Sign In" without any problems.`APEX_WORLD`
+
+![image-20240311174134250](images/image-20240311174134250.png)
+
+The APEX application schema and schema user were also created at the same time for the newly created Workspace.
+
+The names of the schemas and schema users for APEX applications are prefixed with `APEX_WORLD`a .`_``WKSP_``WKSP_APEXWORLD`
+
+ 
+
+The APEX Workspace creation is now complete.
+
+ 
+
+## 3. Grant privileges to schema users
+
+Grant privileges to schema users for APEX applications.
+
+ 
+
+On the Autonomous Database details screen, select the database action and click "SQL".
+
+![image-20240308151334080](images/image-20240308151334080.png)
+
+Paste the SQL statement below and click "Run Script (F5)".
+
+```
+GRANT console_developer TO wksp_apexworld;
+
+GRANT dwrole TO wksp_apexworld;
+
+GRANT resource TO wksp_apexworld;
+
+GRANT EXECUTE ON dbms_cloud_ai TO wksp_apexworld;
+
+GRANT EXECUTE ON dbms_rls TO wksp_apexworld;
+
+GRANT EXECUTE ON dbms_session TO wksp_apexworld;
+/
+
+BEGIN
+    ords.enable_schema(p_enabled => TRUE, p_schema => 'WKSP_APEXWORLD', p_url_mapping_type => 'BASE_PATH', p_url_mapping_pattern => 'WKSP_APEXWORLD'
+    , p_auto_rest_auth => TRUE);
+
+    COMMIT;
+END;
+/
+```
+
+You will also need settings to access OpenAI's API Endpoint.
+
+```
+BEGIN
+    dbms_network_acl_admin.append_host_ace(host => 'api.openai.com', lower_port => 443, upper_port => 443, ace => xs$ace_type(privilege_list => xs$name_list
+    ('http'), principal_name => 'WKSP_APEXWORLD', principal_type => xs_acl.ptype_db));
+END;
+/
+```
+
+ 
+
+You have now granted privileges to the schema user for your APEX application.
+
+ 
+
+## 4. Installing sample datasets
+
+Install the sample dataset.
+
+ 
+
+`APEX_WORLD`On the APEX Workspace screen where the user "Signs In", select "SQL Workshop" => "Utilities" => "Sample Datasets".
+
+![image-20240308152436823](images/image-20240308152436823.png)
+
+We will install the sample dataset of "EMP/DEPT", so click "Install" with "Name" of "EMP/DEPT".
+
+![image-20240308152510323](images/image-20240308152510323.png)
+
+Select "Japanese" for "Language" and click "Next".
+
+![image-20240308152656531](images/image-20240308152656531.png)
+
+On the next screen, click "Install Dataset".
+
+![image-20240308152812973](images/image-20240308152812973.png)
+
+Finally, click "Exit".
+
+![image-20240308152907806](images/image-20240308152907806.png)
+
+Also, the DDL to create the "DEPT" and "EMP" tables is the following SQL statement. Please refer to it.
+
+```
+CREATE TABLE "DEPT" 
+ (	"DEPTNO" NUMBER(4,0) GENERATED BY DEFAULT ON NULL AS IDENTITY MINVALUE 1 MAXVALUE 9000 INCREMENT BY 10 START WITH 50 NOCACHE  NOORDER  NOCYCLE  NOKEEP  NOSCALE  NOT NULL ENABLE, 
+	"DNAME" VARCHAR2(50), 
+	"LOC" VARCHAR2(50), 
+	 CONSTRAINT "DEPT_PK" PRIMARY KEY ("DEPTNO")
+USING INDEX  ENABLE
+ ) ;
+ 
+CREATE TABLE "EMP" 
+ (	"EMPNO" NUMBER(4,0) GENERATED BY DEFAULT ON NULL AS IDENTITY MINVALUE 1 MAXVALUE 90000 INCREMENT BY 10 START WITH 8000 NOCACHE  NOORDER  NOCYCLE  NOKEEP  NOSCALE  NOT NULL ENABLE, 
+	"ENAME" VARCHAR2(50), 
+	"JOB" VARCHAR2(50), 
+	"MGR" NUMBER(4,0), 
+	"HIREDATE" DATE, 
+	"SAL" NUMBER(7,2), 
+	"COMM" NUMBER(7,2), 
+	"DEPTNO" NUMBER(4,0), 
+	 CONSTRAINT "EMP_PK" PRIMARY KEY ("EMPNO")
+USING INDEX  ENABLE
+ ) ;
+
+ALTER TABLE "EMP" ADD CONSTRAINT "EMP_MGR_FK" FOREIGN KEY ("MGR")
+	  REFERENCES "EMP" ("EMPNO") ENABLE;
+ALTER TABLE "EMP" ADD CONSTRAINT "EMP_DEPT_FK" FOREIGN KEY ("DEPTNO")
+	  REFERENCES "DEPT" ("DEPTNO") ENABLE;
+
+CREATE INDEX "EMP_1" ON "EMP" ("MGR");
+
+CREATE INDEX "EMP_2" ON "EMP" ("DEPTNO");
+```
+
+ 
+
+The installation of the sample dataset is now complete.
+
+ 
+
+## 5. Add comments, create views and create profiles
+
+Add comments for each table and column. Also create a view of the EMP table (*).
+
+Also, create a profile to access OpenAI.
+
+> *EMP table view is required when using VPD ( [Virtual Private Database to Control Data Access ).](https://docs.oracle.com/en/database/oracle/oracle-database/19/dbseg/using-oracle-vpd-to-control-data-access.html)
+
+ 
+
+`APEX_WORLD`On the APEX Workspace screen where the user "Signs In", select "SQL Workshop" => "SQL Developer Web".
+
+![image-20240308153422331](images/image-20240308153422331.png)
+
+Paste the SQL statement below and click "Run Script (F5)".
+
+```
+COMMENT ON TABLE emp IS
+    'Includes employee number, name, job title, supervisor number, date of employment, salary, and department number';
+COMMENT ON COLUMN emp.empno IS
+    'employee number';
+COMMENT ON COLUMN emp.ename IS
+    'Employee name';
+COMMENT ON COLUMN emp.job IS
+    'Job type';
+COMMENT ON COLUMN emp.mgr IS
+    'Boss number';
+COMMENT ON COLUMN emp.hiredate IS
+    'hire date';
+COMMENT ON COLUMN emp.sal IS
+    'salary';
+COMMENT ON COLUMN emp.comm IS
+    'commission';
+COMMENT ON COLUMN emp.deptno IS
+    'Department number (used to join with DEPT table)';
+COMMENT ON TABLE dept IS
+    'Includes department number, department name, and department location';
+COMMENT ON COLUMN dept.deptno IS
+    'Department number';
+COMMENT ON COLUMN dept.dname IS
+    'Department name';
+COMMENT ON COLUMN dept.loc IS
+    'Department location';
+    
+CREATE VIEW emp_view AS
+    (
+        SELECT
+            *
+        FROM
+            emp
+    );
+    
+    
+EXEC DBMS_CLOUD.create_credential('OPENAI_CRED', 'openai', 'OPENAI_API_KEY: https://platform.openai.com/docs/quickstart');
+
+BEGIN
+    dbms_cloud_ai.drop_profile(profile_name => 'OPENAI', force => TRUE);
+    dbms_cloud_ai.create_profile(profile_name => 'OPENAI', attributes => '{"provider": "openai",
+          "credential_name": "OPENAI_CRED",
+          "comments":"true",
+          "temperature":0.0,
+          "model":"gpt-3.5-turbo",
+          "object_list": [
+            {"owner": "WKSP_APEXWORLD", "name": "EMP_VIEW"},
+          {"owner": "WKSP_APEXWORLD", "name": "DEPT"}
+          ]
+        }');
+    dbms_cloud_ai.set_profile(profile_name => 'OPENAI');
+    dbms_cloud_ai.enable_profile(profile_name => 'OPENAI');
+END;
+/
+```
+
+![image-20240308153937814](images/image-20240308153937814.png)
+
+![image-20240308154052104](images/image-20240308154052104.png)
+
+![image-20240308154124451](images/image-20240308154124451.png)
+
+Let's verify with the following SQL statement.
+
+```
+SELECT
+    dbms_cloud_ai.generate(prompt => 'Hello', profile_name => 'OPENAI', action => 'CHAT')
+FROM
+    dual;
+```
+
+If you receive a response from OpenAI, the verification was successful.
+
+![image-20240308154800802](images/image-20240308154800802.png)
+
+ 
+
+You have now finished adding comments, creating views, and creating profiles.
+
+ 
+
+## 6. Creating an APEX application
+
+Create an APEX application.
+
+ 
+
+`APEX_WORLD`On the APEX Workspace screen where the user "Signs In", select "App Builder" => "Create".
+
+![image-20240308162155404](images/image-20240308162155404.png)
+
+Enter a name (e.g. ) in "Name" and click "Use Create App Wizard".`SELECTAIDEMO`
+
+![image-20240308162251700](images/image-20240308162251700.png)
+
+Select "Redwood Light, Side Menu" for "Appearance", select "Japanese (ja)" for "Language", and click "Create Application".
+
+![image-20240308165936666](images/image-20240308165936666.png)
+
+Click "1 - Home".
+
+![image-20240308162434269](images/image-20240308162434269.png)
+
+Delete the existing "Breadcrumb Bar".
+
+Right-click on "SELECTAIDEMO" and select "Delete".
+
+![image-20240308162523520](images/image-20240308162523520.png)
+
+Create two Regions.
+
+Right-click "Body" and click "Create Region".
+
+![image-20240308162647383](images/image-20240308162647383.png)
+
+Enter "Input" in the "Title" of the first Region.
+
+![image-20240308162840868](images/image-20240308162840868.png)
+
+Enter "Result" in the "Title" of the second Region.
+
+![image-20240308162921928](images/image-20240308162921928.png)
+
+Create one "Textarea", two "Buttons", and one "Textarea" for the "input" Region.
+
+Right-click the "Input" Region and click "Create Page Item".
+
+![image-20240308163147506](images/image-20240308163147506.png)
+
+Configure the first "Textarea" as follows.
+
+- "Name": "P1_INPUT"
+- "Type": "Textarea"
+- "Label": "Message"
+- "Height": "3"
+
+![image-20240308163317217](images/image-20240308163317217.png)
+
+![image-20240308163459102](images/image-20240308163459102.png)
+
+Next, right-click "Region Body" and click "Create Button".
+
+![image-20240308163609469](images/image-20240308163609469.png)
+
+Configure the first "Button" as follows.
+
+- "Button Name": "Clear"
+- "Label": "Clear"
+
+![image-20240308163930954](images/image-20240308163930954.png)
+
+Configure the second "Button" as follows.
+
+- "Button Name": "Submit"
+- "Label": "Send"
+- "Start New Row": Off
+
+![image-20240308164051023](images/image-20240308164051023.png)
+
+Create one more "Textarea" and configure it as follows.
+
+- "Name": "P1_SQL"
+- "Type": "Textarea"
+- "Label": "SQL"
+- "Height": "12"
+
+![image-20240308164240527](images/image-20240308164240527.png)
+
+![image-20240308164426516](images/image-20240308164426516.png)
+
+Perform the save process.
+
+Click "Save" in the upper right corner. (I will omit the explanation of the saving process from here on.)
+
+> We recommend that you save each time you make changes.
+
+![image-20240308164553220](images/image-20240308164553220.png)
+
+Create one "Table" for the "result" Region.
+
+Right-click the "Results" Region and click "Create Sub Region".
+
+![image-20240308164939709](images/image-20240308164939709.png)
+
+Set as below.
+
+- "Type": "Classic Report"
+- "Table Name": "EMP" (Actually, you can use either table as you will change it later.)
+
+![image-20240308165122656](images/image-20240308165122656.png)
+
+(Optional) Change the "Appearance" of "Button" to make the screen design look nice.
+
+Hold down Shift on your keyboard and select "Clear" and "Submit" at the same time to set it up like a capture.
+
+- "Hot": On
+- "Size": "Large"
+- "Type": "Primary"
+- "Width": "Stretch"
+
+![image-20240308165517168](images/image-20240308165517168.png)
+
+Create a "Dynamic Action" for "Clear" and "Submit".
+
+Right-click "Clear" and click "Create Dynamic Action".
+
+![image-20240308170355824](images/image-20240308170355824.png)
+
+Set as below.
+
+- "Action": "Clear"
+- "Item(s)": "P1_INPUT,P1_SQL"
+
+![image-20240308170652966](images/image-20240308170652966.png)
+
+Right-click "Submit" and click "Create Dynamic Action".
+
+![image-20240308170937446](images/image-20240308170937446.png)
+
+Create three more "TRUE Actions" for the created "Dynamic Action".
+
+Right click on "Dynamic Action" and select "Create TRUE Action".
+
+![image-20240308171016019](images/image-20240308171016019.png)
+
+Set the first "TRUE Action" as follows.
+
+- "Action": "Execute JavaScript Code"
+
+- "Code":
+
+  ```
+  lSpinner$ = apex.util.showSpinner();
+  ```
+
+![image-20240308171938929](images/image-20240308171938929.png)
+
+Set the second "TRUE Action" as follows.
+
+- "Action": "Set Value"
+
+- "Set Type": "PL/SQL Function Body"
+
+- "PL/SQL Function Body":
+
+  ```
+  DECLARE
+      v_tmp CLOB;
+  BEGIN
+      v_tmp := dbms_cloud_ai.generate(prompt => :p1_input,--||', all values is lowcase by default if not quote',
+       action => 'showsql', profile_name => 'OPENAI');
+  
+      IF v_tmp LIKE 'Sorry,%' THEN
+          RETURN NULL;
+      END IF;
+      RETURN v_tmp;
+  END;
+  ```
+
+  
+
+  
+
+- "Item(s) to Submit": "P1_INPUT"
+
+- "Item(s)" in "Affected Elements": "P1_SQL"
+
+![image-20240308172224763](images/image-20240308172224763.png)
+
+Set the third "TRUE Action" as follows.
+
+- "Action": "Execute JavaScript Code"
+
+- "Code":
+
+  ```
+  lSpinner$.remove();
+  ```
+
+![image-20240308172731331](images/image-20240308172731331.png)
+
+Set the fourth "TRUE Action" as follows.
+
+- "Action": "Submit Page"
+
+![image-20240308172905541](images/image-20240308172905541.png)
+
+Furthermore, for the second "TRUE Action", additionally set the following.
+
+- "Escape Special Characters": Off
+- "Fire on Initialization": Off
+
+![image-20240308173023111](images/image-20240308173023111.png)
+
+Set "Sub Regions" in "Results" as follows.
+
+- "Type": "PL/SQL Function Body returning SQL Query"
+
+- "PL/SQL Function Body returning SQL Query":
+
+  ```
+  BEGIN
+      IF :p1_sql IS NOT NULL THEN
+          RETURN ''
+                 || :p1_sql
+                 || '';
+      ELSE
+          RETURN 'select '' No Output '' from dual';
+      END IF;
+  END;
+  ```
+
+  
+
+  
+
+  
+
+- "Use Generic Column Names": On
+
+- "Generic Column Count": "40"
+
+![image-20240308173723321](images/image-20240308173723321.png)
+
+Also, select "Column Names (InitCap)" for "Type" of "Heading" of "Attributes". Perform the save process.
+
+![image-20240308173842638](images/image-20240308173842638.png)
+
+ 
+
+## 7. SELECT AI operation verification
+
+Let's verify the operation of SELECT AI in the APEX application.
+
+ 
+
+Click the "Play" button at the top right.
+
+![image-20240308174117980](images/image-20240308174117980.png)
+
+"Sign In" with the "APEX_WORLD" user.
+
+![image-20240308174238747](images/image-20240308174238747.png)
+
+Let's input some natural language and test it.
+
+- `Please display the number of employees.`
+
+  ![image-20240308174456282](images/image-20240308174456282.png)
+
+- `Please display the number of departments`
+
+  ![image-20240308174533410](images/image-20240308174533410.png)
+
+- `"Please display the department of "Ayako Murakami"`
+
+  ![image-20240308174607433](images/image-20240308174607433.png)
+
+- `Please show the employees who belong to "Sales"`
+
+  ![image-20240308174710312](images/image-20240308174710312.png)
+
+ 
+
+The creation of the APEX application is now complete.
+
+ 
+
+## 8. Configuring privilege management with VPD
+
+Set privilege management using VPD.
+
+ 
+
+`APEX_WORLD`On the APEX Workspace screen where the user "Signs In", select "SQL Workshop" => "SQL Commands".
+
+Set a policy where managers can see their own and subordinates' salaries, and regular employees can only see their own salaries.
+
+Execute the following two SQL statements.
+
+```
+create or replace FUNCTION hide_sal_comm (
+  v_schema IN VARCHAR2,
+  v_objname IN VARCHAR2)
+  RETURN VARCHAR2 AS
+  v_login varchar2(256);
+  v_conn_user varchar2(256);
+  predicate varchar2(500);
+BEGIN
+        v_login := V('APP_USER');
+        v_conn_user := SYS_CONTEXT('USERENV','SESSION_USER');
+        -- return all data if use SYS user
+        if v_conn_user IN ('ADMIN','SYS') then
+            predicate := '1=1';
+        else
+        -- VPD abled for WHERE + Predicate Employees
+            predicate := 'ENAME IN (
+                    SELECT e1.ENAME
+                    FROM EMP e1
+                    START WITH e1.EMPNO=''' || v_login || '''
+                    CONNECT BY PRIOR e1.EMPNO = e1.MGR
+                    )';
+        end if;
+        RETURN predicate;
+    exception
+        when no_data_found then
+        null;    
+END hide_sal_comm;
+/
+BEGIN
+DBMS_RLS.ADD_POLICY(
+object_schema => 'WKSP_APEXWORLD',
+object_name => 'emp_view',
+policy_name => 'hide_sal_policy',
+policy_function => 'hide_sal_comm',
+sec_relevant_cols => 'sal,comm',
+sec_relevant_cols_opt => dbms_rls.ALL_ROWS
+);
+END;
+```
+
+![image-20240308175214484](images/image-20240308175214484.png)
+
+![image-20240308175246887](images/image-20240308175246887.png)
+
+Next, add users. Add two users.
+
+- 7698: Akiko Ito Manager
+- 7499: Ayako Murakami General employee
+
+ 
+
+Select "Manage Users and Groups" in the upper right corner.
+
+![image-20240308175505897](images/image-20240308175505897.png)
+
+Click "Create User".
+
+![image-20240308175546648](images/image-20240308175546648.png)
+
+Enter the following items and click "Create and Create Another".
+
+- "Username": "7698"
+- "Email Address": " [manager@oracle.com ](mailto:manager@oracle.com)"
+- "Password": "<YOUR_PASSWORD>"
+- "Confirm Password": "<YOUR_PASSWORD>"
+- "Require Change of Password on First Use": Off
+
+![image-20240308175723932](images/image-20240308175723932.png)
+
+Enter the user "7499" in the same way as above and click "Create User".
+
+![image-20240311142723345](images/image-20240311142723345.png)　
+
+ 
+
+## 9. Verification of privilege management with VPD
+
+Verify VPD functionality.
+
+ 
+
+Click "APEX" in the upper left corner and select the "SELECTAIDEMO" application.
+
+![image-20240308180338145](images/image-20240308180338145.png)
+
+Click the "Play" button at the top right.
+
+![image-20240308180513073](images/image-20240308180513073.png)
+
+"Sign In" as the user (manager) of "7698".
+
+![image-20240308180549953](images/image-20240308180549953.png)
+
+Try searching by entering natural language.
+
+- `Please show all employees.`
+
+![image-20240311142832041](images/image-20240311142832041.png)
+
+![image-20240311142904864](images/image-20240311142904864.png)
+
+As a search result, you can search for your own salary and the salary of your subordinates.
+
+Next, "Sign In" as user "7499" (regular employee).
+
+![image-20240311143752770](images/image-20240311143752770.png)
+
+Try searching by entering the same natural language.
+
+- `Please show all employees`
+
+![image-20240311142832041](images/image-20240311142832041.png)
+
+![image-20240311143837925](images/image-20240311143837925.png)
+
+You can search for your own salary as a search result, but you cannot see the salaries of other employees.
+
+ 
+
+The settings for privilege management using VPD are now complete.
